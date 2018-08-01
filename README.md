@@ -1,4 +1,4 @@
-Power usage representation and appliances correlation
+# Power usage representation and appliances correlation
 
 There are three module in this repository.
 
