@@ -8,7 +8,7 @@ import pandas as pd
 import os
 
 class sql4data():
-    def __init__(self, user="", password="", database="", host_address="", port=3306):
+    def __init__(self, user="tkfc", password="1qaz@WSX", database="iii_bees_all", host_address="223.27.48.230", port=3306):
         self.user = user
         self.password = password
         self.database = database
@@ -53,4 +53,8 @@ class sql4data():
 """    def chk_environment(self):
         return True
 
-"""
+
+    def insert_model(self, model, valid_metrics, step):
+        add_model = "INSERT INTO Model (name, description, layers, mse, mae, appliance, params, step, created_time, user) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s);"
+        self.cursor.execute(add_model, (self.name, self.description, len(model.layers), valid_metrics[3], valid_metrics[2], self.appliance, model.count_params(), step, self.created_time, self.user))
+        self.db.commit()"""

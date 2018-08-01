@@ -119,12 +119,6 @@ class data4cluster():
         df.to_csv(csv_path)
         print (message)
 
-    def get_usage_representation(self, buildings, target_meters, threshold=20, sample_rate='60min'):
-        file_name = 'usage_representation'
-        self.data_preprocess(buildings, target_meters, threshold, sample_rate, file_name)
-        
-        return self.usage_representation
-
     def extract_switch_moment(self, buildings, target_meters, threshold=20, sample_rate='60min'):
         buildings_meters_state = self.data_preprocess(buildings, target_meters, threshold, sample_rate)
         
@@ -135,6 +129,9 @@ class data4cluster():
                     continue
 
                 timestamps=[buildings_meters_state[building][appliance].ne(False).idxmax()]
+                if not buildings_meters_state[building][appliance][timestamps[-1]]:
+                    continue
+                    
                 final_timestamps = buildings_meters_state[building].index[-1]
                 while(timestamps[-1] < final_timestamps):
                     if(buildings_meters_state[building][appliance][timestamps[-1]]):
@@ -168,7 +165,13 @@ class data4cluster():
                 
         return self.building_representation
 
-    def get_usage_representation(self):
+    def get_usage_representation(self, buildings, target_meters, threshold=20, sample_rate='60min'):
+        file_name = 'usage_representation'
+        self.data_preprocess(buildings, target_meters, threshold, sample_rate, file_name)
+        self.extract_switch_moment(buildings, target_meters, threshold, sample_rate)
+        self.concate_appliances_state()
+        self.usage_representation = {}
+        
         for building in self.building_representation.keys():
             building_data = self.building_representation[building]
 
