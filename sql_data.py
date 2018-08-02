@@ -8,14 +8,13 @@ import pandas as pd
 import os
 
 class sql4data():
-    def __init__(self, user="tkfc", password="1qaz@WSX", database="iii_bees_all", host_address="223.27.48.230", port=3306):
+    def __init__(self, user = None, password = None, database = None, host_address = None, port = 3306):
         self.user = user
         self.password = password
         self.database = database
         self.host_address = host_address
         self.created_time = strftime('%Y-%m-%d_%H_%M')
         self.port = port
-
         self.mySQL_connect()
 #        self.chk_environment()
 
@@ -25,8 +24,12 @@ class sql4data():
         print('=====================================================')
         print('Time : {}\n'.format(strftime('%Y-%m-%d_%H_%M')))
 
-        self.db = MySQLdb.connect(host=self.host_address, port=self.port, user=self.user, passwd=self.password, db=self.database,
-                        charset="utf8")
+        self.db = MySQLdb.connect(  host=self.host_address, 
+                                    port=self.port, 
+                                    user=self.user, 
+                                    passwd=self.password,
+                                    db=self.database,
+                                    charset="utf8")
         self.db.ping(True)
         self.cursor = self.db.cursor()
 
@@ -36,25 +39,18 @@ class sql4data():
         print('============ Close the remote connection ============')
         print('=====================================================')
 
-    def read_data(self, start_date='2017-08-01', end_date='2018-07-31', file_name='raw_data'):
+    def read_data(self, start_date = '2017-08-01', end_date = '2018-07-31', file_name = 'raw_data'):
         sql_query = ("SELECT * FROM raw_training_data WHERE reporttime BETWEEN '" + start_date + "' AND '" + end_date + "'" )
-
         print ('Start to query from the raw_data...')
-        df = pd.read_sql(sql_query, self.db)
-        
+        df = pd.read_sql(sql_query, self.db)        
         if not os.path.isdir('data'):
             os.makedirs('data')
-        
-        csv_path = './data/' + file_name + '.csv'
-        df.to_csv(csv_path)
-        print ('The .csv of raw_data is saved')
+            print('The data folder was created')
+        df.to_csv(os.path.join('data', file_name + '.csv'), index=False)
+        print ('The raw_data.csv was saved')
         return df
 
 """    def chk_environment(self):
         return True
 
-
-    def insert_model(self, model, valid_metrics, step):
-        add_model = "INSERT INTO Model (name, description, layers, mse, mae, appliance, params, step, created_time, user) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s);"
-        self.cursor.execute(add_model, (self.name, self.description, len(model.layers), valid_metrics[3], valid_metrics[2], self.appliance, model.count_params(), step, self.created_time, self.user))
-        self.db.commit()"""
+"""
