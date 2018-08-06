@@ -93,6 +93,10 @@ class data4cluster():
         else:
             meters_state = self.buliding_df[building]           
         meters_state = meters_state[[ meter for meter in channels if meter in meters_state.keys()]] > threshold
+        # recode
+        recode = {True: 'on', False: 'off'}
+        for col in meters_state.columns:
+            meters_state[col] = meters_state[col].map(recode)         
         return meters_state
 
     def select_target_data(self, buildings, target_meters=None, threshold=20, sample_rate = '1min'):
@@ -134,45 +138,7 @@ class data4cluster():
         print '{}.csv saved'.format(file_name) 
         df.to_csv(csv_path)
 
-    def extract_switch_moment(self, buildings, channels, threshold=20, sample_rate='60min'):
-        """
-            extract the switch moment
-            ____________________________
-            
-            input:
-                buildings : a list, example: [4,5] or [9]
-                channels : a list, example:  ['television', 'fridge', 'air conditioner']
-                threshold : the threshold to define on or off
-                
-             return:
-                a building switch table                
-        """
-        buildings_meters_state = self.data_preprocess(buildings, channels, threshold, sample_rate)
-        
-        for building in buildings:
-            switch_table = {}
-            for channel in channels:
-                if channel not in buildings_meters_state[building].keys():
-                    continue
-
-                timestamps=[buildings_meters_state[building][channel].ne(False).idxmax()]
-                final_timestamps = buildings_meters_state[building].index[-1]
-                while(timestamps[-1] < final_timestamps):
-                    if(buildings_meters_state[building][channel][timestamps[-1]]):
-                        timestamps.append(buildings_meters_state[building][channel][timestamps[-1]:].ne(True).idxmax())
-                    else:
-                        timestamps.append(buildings_meters_state[building][channel][timestamps[-1]:].ne(False).idxmax())
-
-                    if timestamps[-1] == timestamps[-2]:
-                        timestamps.pop()
-                        break
-
-                meter_state = buildings_meters_state[building][channel][timestamps]                
-                switch_table.setdefault(channel, meter_state)
-                
-            self.building_switch.setdefault(building, switch_table)
-            
-        return self.building_switch
+    -
 
     def concate_appliances_state(self):
         for building in self.building_switch.keys():
@@ -209,8 +175,9 @@ class data4cluster():
         for building in self.building_representation.keys():
             building_data = self.building_representation[building]
             appliances = building_data.keys()
-            encode = {True:1, False:-1}
+            encode = {'on':1, 'off':-1}
             representation_index = building_data.index
+            print(representation_index)
             representation_data = [[encode[building_data[app][idx]] * self.appliance_in_code(app)
                                     for app in appliances if not math.isnan(building_data[app][idx])]
                                    for idx in representation_index]
