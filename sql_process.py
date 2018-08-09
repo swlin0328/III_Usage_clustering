@@ -18,7 +18,7 @@ class cluster4sql():
     
     """
         
-    def __init__(self, user="", password="", database="", host_address='', port='1433', meter_name=None):
+    def __init__(self, user="", password="", database="", host_address='', port='', meter_name=None):
         self.user = user
         self.password = password
         self.database = database
@@ -209,7 +209,7 @@ class cluster4sql():
             
         return representation
 
-    def result2db(self, usage_representation, app_loc):
+    def result2db(self, usage_representation, app_loc, min_series_len=10):
         """
         Parameters
         ----------
@@ -222,17 +222,20 @@ class cluster4sql():
         sql_buildings = [data[0] for data in sql_buildings]
                                          
         for building_id in usage_representation.keys():
+            building_data = usage_representation[building_id]
+            if building_data.count() < min_series_len:
+                continue
+
             if sql_buildings is None or building_id not in sql_buildings:
                 self.insert_data(building=building_id)
-
-            building_data = usage_representation[building_id]
+            
 
             year_data = building_data.groupby(building_data.index.year)
             year_index = year_data.groups.keys()
 
             for year_idx in year_index:
                 target_year = year_data.get_group(year_idx)
-                month_data = target_year.groupby(building_data.index.month)
+                month_data = target_year.groupby(target_year.index.month)
                 month_index = month_data.groups.keys()
 
                 for month_idx in month_index:

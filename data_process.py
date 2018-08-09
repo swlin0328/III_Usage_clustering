@@ -51,6 +51,10 @@ class data4cluster():
         return the list of string.
         
         """
+        if result is None:
+            print('None type result...')
+            return
+        
         result_msg = []    
         for record in result:
             msg = str(record)
@@ -76,6 +80,9 @@ class data4cluster():
         sample_rate : Resampling the recorded data, the method is set to be 'mean'.
     
         """
+        if self.df is None:
+            self.read_data_from_csv()
+            
         if len(meters_name) < 1 :
             meters_name = self.meter_name.keys()
 
@@ -219,9 +226,9 @@ class data4cluster():
 
                 meter_state = buildings_meters_state[building][appliance][timestamps]
                 switch_table.setdefault(appliance, meter_state)
-                switch_df = pd.DataFrame.from_dict(switch_table)
-                      
-            if switch_table is not None:
+                
+            switch_df = pd.DataFrame.from_dict(switch_table)
+            if switch_df is not None:
                 self.building_switch.setdefault(building, switch_df)
 
         self.save_dict2csv(self.building_switch, file_name='swich_moment')       
@@ -274,8 +281,8 @@ class data4cluster():
     
         """
         
-        if buildings is None and target_meters is None:
-            buildings, target_meters = self.init_parameters()
+        if buildings is None or target_meters is None:
+            buildings, target_meters = self.init_parameters(buildings, target_meters)
                     
         self.extract_switch_moment(buildings, target_meters, num_on_state, threshold, sample_rate)
         self.concate_appliances_state()
@@ -296,20 +303,24 @@ class data4cluster():
             if usage_representation is not None:
                 self.usage_representation.setdefault(building, usage_representation)
 
-        self.save_dict2csv(self.usage_representation, file_name='usage_representation')       
+        self.save_dict2csv(self.usage_representation, file_name='usage_representation')
         return self.usage_representation
 
-    def init_parameters(self):
+    def init_parameters(self, buildings, target_meters):
         """
         If input_parameter is None, initializing parameters to compute all the buildings and meters.
     
         """
         if self.df is None:
             self.read_data_from_csv()
+
+        if buildings is None:
+            buildings = self.find_all_houses().tolist()
+
+        if target_meters is None:
+            target_meters = self.meter_name.keys()
             
-        buildings = self.find_all_houses().tolist()
-        meters = self.meter_name.keys()
-        return buildings, meters
+        return buildings, target_meters
 
     def check_parameters(self, buildings):
         for building in buildings:
@@ -328,9 +339,12 @@ class data4cluster():
         
         return apriori_series
 
-    def execute_apriori(self, representation_series, min_supp = 0.003, min_confi=0.1, min_len=2):
+    def execute_apriori(self, representation_series, min_series_len, min_supp = 0.003, min_confi=0.1):
+        if representation_series.size < min_series_len:
+            print('representation_series is too short...')
+            return
         apriori_series = self.prepare_apriori_series(representation_series)
-        results = apriori(apriori_series, min_suppor=min_supp, min_confidence=min_confi, min_length=min_len)
+        results = apriori(apriori_series, min_support=min_supp, min_confidence=min_confi)
         return list(results)
         
 
@@ -354,13 +368,14 @@ class ClusterPipeline():
     demo_algorithms : Presenting the apriori algorithm.
     
     """
-    def __init__(self, file_name = 'raw_data', buildings = None, target_meters = None, sample_rate='60min'):
+    def __init__(self, file_name = 'raw_data', buildings = None, target_meters = None, sample_rate='60min', min_series_len = 10):
         self.data_process = data4cluster()
         self.sql_process = cluster4sql()
         self.raw_data = file_name
         self.buildings = buildings
         self.target_meters = target_meters
         self.sample_rate = sample_rate
+        self.min_series_len = min_series_len
 
     def start_data_preprocess(self, num_on_state=6, threshold=20):
         self.data_process.read_data_from_csv(self.raw_data)
@@ -369,10 +384,10 @@ class ClusterPipeline():
 
     def start_sql_storage(self, usage_representation):
         temp_app_loc = (1, 1, 1)
-        self.sql_process.result2db(usage_representation, temp_app_loc)
+        self.sql_process.result2db(usage_representation, temp_app_loc, self.min_series_len)
 
-    def demo_algorithms(self, target_building = 2, min_supp=0.003, min_confi=0.1, min_len=2):
+    def demo_algorithms(self, target_building = 2, min_supp=0.003, min_confi=0.1):
         usage_representation = self.start_data_preprocess()
         self.start_sql_storage(usage_representation)
-        apriori_result = self.data_process.execute_apriori(usage_representation[target_building], min_supp, min_confi, min_len)
+        apriori_result = self.data_process.execute_apriori(usage_representation[target_building], self.min_series_len, min_supp, min_confi)
         return apriori_result
