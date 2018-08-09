@@ -5,6 +5,7 @@ from time import strftime
 import types
 import tempfile
 from ast import literal_eval as make_tuple
+import numpy as np
 
 
 class cluster4sql():
@@ -17,7 +18,7 @@ class cluster4sql():
     
     """
         
-    def __init__(self, user="", password="", database="", host_address='', port='', meter_name=None):
+    def __init__(self, user="", password="", database="", host_address='', port='1433', meter_name=None):
         self.user = user
         self.password = password
         self.database = database
@@ -236,7 +237,7 @@ class cluster4sql():
 
                 for month_idx in month_index:
                     target_month = month_data.get_group(month_idx)
-                    day_data = target_month.groupby(building_data.index.day)
+                    day_data = target_month.groupby(target_month.index.day)
                     day_index = day_data.groups.keys()
                 
                     for day_idx in day_index:
