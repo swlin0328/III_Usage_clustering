@@ -18,7 +18,7 @@ class cluster4sql():
     
     """
         
-    def __init__(self, user="", password="", database="", host_address='', port='', meter_name=None):
+    def __init__(self, user="", password="", database="", host_address='', port='1433', meter_name=None):
         self.user = user
         self.password = password
         self.database = database
@@ -253,7 +253,7 @@ class cluster4sql():
     def save_seq2db(self, day_seq, building_id, app_loc):
         report_date = day_seq.index[0].strftime("%Y/%m/%d")
 
-        if len(self.search_data("SELECT * FROM representation_blob WHERE record_date = " + report_date + " and building =" + str(building_id))) < 1:
+        if len(self.search_data("SELECT * FROM representation_blob WHERE record_date = " + report_date + " and building =" + str(building_id))) > 0:
             return
         
         for time_idx, seq in day_seq.iteritems():

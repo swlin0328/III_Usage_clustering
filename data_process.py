@@ -14,7 +14,7 @@ from datetime import timedelta
 class data4cluster():
     def __init__(self):
         self.meter_name = {"main":[0], "others":[1], "television":[2], "fridge":[3, 1002], "air conditioner":[4, 1004], "bottle warmer":[5], "washing machine":[6]}
-        self.appliance_code = {2:"television", 3:"fridge", 4:"air conditioner", 5:"bottle warmer", 6:"washing machine"}
+        self.appliance_code = {1:"other", 2:"television", 3:"fridge", 4:"air conditioner", 5:"bottle warmer", 6:"washing machine"}
         self.buliding_df = {}
         self.building_switch = {}
         self.building_representation = {}
@@ -59,10 +59,13 @@ class data4cluster():
         for record in result:
             msg = str(record)
             for app_code, app_name in self.appliance_code.iteritems():
-                app_code = str(app_code) 
+                app_code = str(app_code)
+                msg = msg.replace('[' + app_code, '[' + app_name)
                 msg = msg.replace(app_code + ']', app_name + ']')
+                msg = msg.replace(' ' + app_code + ',', ' ' + app_name + ',')
                 
-            msg = msg.replace('[-', '[off_')             
+            msg = msg.replace('[-', '[off_')
+            msg = msg.replace(', -', '[off_')
             result_msg.append(msg)
             print(msg)
 
