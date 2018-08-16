@@ -5,13 +5,16 @@ from time import strftime
 import pandas as pd
 import numpy as np
 from sql_data import sql4data
-from sql_process import cluster4sql
+from sql_process import correlation4sql
 from apyori import apriori
 import os
 import math
 from datetime import timedelta
+from sqlalchemy import create_engine
+import pymssql
+from tqdm import tqdm
 
-class data4cluster():
+class data4correlation():
     def __init__(self):
         self.meter_name = {"main":[0], "others":[1], "television":[2], "fridge":[3, 1002], "air conditioner":[4, 1004], "bottle warmer":[5], "washing machine":[6]}
         self.appliance_code = {1:"other", 2:"television", 3:"fridge", 4:"air conditioner", 5:"bottle warmer", 6:"washing machine"}
@@ -128,7 +131,7 @@ class data4cluster():
     def find_all_channels(self, df):
         return np.unique(df['channelid'])
 
-    def meters_state_of_buliding(self, target_building, target_appliances, threshold=20):
+    def meters_state_of_buliding(self, target_building, target_appliances, threshold=70):
         """
         Extract meters state from the preprocessed data for each building,
         returning the pd.dataframe which recorded the meter state for each recorded timestamp.
@@ -147,7 +150,7 @@ class data4cluster():
         meters_state = meters_state[[ meter for meter in target_appliances if meter in meters_state.keys()]] > threshold
         return meters_state
 
-    def select_target_data(self, buildings, target_meters=None, threshold=20, sample_rate = '1min'):
+    def select_target_data(self, buildings, target_meters=None, threshold=70, sample_rate = '1min'):
         """
         Preprocess the target building with the member function with load_meters_from_bulidin() and meters_state_of_buliding(),
         preparing the meters state for the representation series calculations.
@@ -168,7 +171,7 @@ class data4cluster():
         
         return buildings_meters_state
 
-    def data_preprocess(self, buildings, target_meters=None, threshold=20, sample_rate='1min'):
+    def data_preprocess(self, buildings, target_meters=None, threshold=70, sample_rate='1min'):
         buildings_meters_state = self.select_target_data(buildings, target_meters, threshold, sample_rate)
         self.check_parameters(buildings)
 
@@ -184,15 +187,16 @@ class data4cluster():
                 continue
             self.save_csv_file(df[target_building], file_name + '_building_' + str(target_building),  message)
 
-    def save_csv_file(self, df, file_name, message='The .csv of result data is saved'):
+    def save_csv_file(self, df, file_name, message=None):
         if not os.path.isdir('result'):
             os.makedirs('result')
         
         csv_path = './result/' + file_name + '.csv'
         df.to_csv(csv_path)
-        print (message)
+        if message is not None:
+            print (message)
 
-    def extract_switch_moment(self, buildings, target_meters, num_on_state=6, threshold=20, sample_rate='60min'):
+    def extract_switch_moment(self, buildings, target_meters, num_on_state=5, threshold=70, sample_rate='60min'):
         """
         Extract the switch moment at each timestamp.
 
@@ -237,7 +241,7 @@ class data4cluster():
         self.save_dict2csv(self.building_switch, file_name='swich_moment')       
         return self.building_switch
 
-    def check_meters_state(self, buildings_meters_state, target_meters, num_on_state, sample_rate, continuous_timestamps='3min'):
+    def check_meters_state(self, buildings_meters_state, target_meters, num_on_state, sample_rate, continuous_timestamps='5min'):
         """
         Check the meter state is continuous, the defalut value is set to be 3min, and return the meters state of each sampling duration.
         The 'On state' refers the On states in sampling duration is above the num_on_states.
@@ -250,11 +254,12 @@ class data4cluster():
         continuous_points : Appliance is determined to be 'on state', if the power usage above the threshold in the contious timestamps
     
         """
+        state_per_duration = int(continuous_timestamps.split('min')[0])
         for building in buildings_meters_state.keys():
             buildings_meters_state[building] = buildings_meters_state[building].resample(continuous_timestamps, how='min')
-            buildings_meters_state[building] = buildings_meters_state[building].fillna(0)
+            buildings_meters_state[building] = buildings_meters_state[building].fillna(False)
             buildings_meters_state[building] = buildings_meters_state[building].resample(sample_rate, how='sum')
-            buildings_meters_state[building] = buildings_meters_state[building][[ meter for meter in target_meters if meter in buildings_meters_state[building].keys()]] > num_on_state/3
+            buildings_meters_state[building] = buildings_meters_state[building][[ meter for meter in target_meters if meter in buildings_meters_state[building].keys()]] > num_on_state/state_per_duration
         return buildings_meters_state
 
     def concate_appliances_state(self):
@@ -274,7 +279,7 @@ class data4cluster():
         self.save_dict2csv(self.building_representation, file_name='concate_states') 
         return self.building_representation
 
-    def get_usage_representation(self, buildings = None, target_meters = None, num_on_state=6, threshold=20, sample_rate='60min'):
+    def get_usage_representation(self, buildings = None, target_meters = None, num_on_state=5, threshold=70, sample_rate='60min'):
         """
         Executing the preprocess algorithms for the raw data, returning the usage representationin pd.Series.
 
@@ -295,9 +300,9 @@ class data4cluster():
             building_data = self.building_representation[building]
 
             appliances = building_data.keys()
-            encode = {True:1, False:-1}
+            encode = {True:"On_", False:"Off_"}
             representation_index = building_data.index
-            representation_data = [[encode[building_data[app][idx]] * self.meter_name[app][0]
+            representation_data = [[encode[building_data[app][idx]] + app
                                     for app in appliances if not math.isnan(building_data[app][idx])]
                                    for idx in representation_index]
             
@@ -349,11 +354,43 @@ class data4cluster():
         apriori_series = self.prepare_apriori_series(representation_series)
         results = apriori(apriori_series, min_support=min_supp, min_confidence=min_confi)
         return list(results)
+
+    def save_apriori(self, apriori_result, building, sample_rate, duration, file_name, host='mssql+pymssql://III_Cluster:III_clustering@140.92.174.21\SQLEXPRESS01/usage_db', to_sql=False):
+        if apriori_result is None:
+            return
+        df = pd.DataFrame()
+
+        for result in apriori_result:
+            tmp_data = {}
+            tmp_data.setdefault('building', building)
+            tmp_data.setdefault('sample_rate', sample_rate)
+            tmp_data.setdefault('appliance', str(result[0]))
+            tmp_data.setdefault('confidence', round(result[1], 4))
+            tmp_data.setdefault('duration', duration[0].strftime("%Y/%m/%d") + ' ~ ' + duration[-1].strftime("%Y/%m/%d"))
+            tmp_data.setdefault('correlation_0', '')
+            tmp_data.setdefault('correlation_1', '')
+            tmp_data.setdefault('correlation_2', '')
+            tmp_data.setdefault('correlation_3', '')
+        
+            for idx in range(len(result[2])):
+                col = 'correlation_' + str(idx)
+                tmp_data[col] = str(result[2][idx])
+
+            df = df.append(tmp_data, ignore_index=True)
+
+        if to_sql:
+            self.df2sql(df, table_name='apriori_result', host=host)
+
+        self.save_csv_file(df, file_name)
+
+    def df2sql(self, df, table_name, host, method='append'):
+        engine = create_engine(host)
+        df.to_sql(name=table_name, con=engine, index=False, if_exists=method)
         
 
-class ClusterPipeline():
+class CorrelationPipeline():
     """
-    Class for executing the cluster algorithms including data preproces and SQL storage result.
+    Class for executing the correlation algorithms including data preproces and SQL storage result.
 
     Parameters
     ----------
@@ -371,26 +408,35 @@ class ClusterPipeline():
     demo_algorithms : Presenting the apriori algorithm.
     
     """
-    def __init__(self, file_name = 'raw_data', buildings = None, target_meters = None, sample_rate='60min', min_series_len = 10):
-        self.data_process = data4cluster()
-        self.sql_process = cluster4sql()
+    def __init__(self, file_name = 'raw_data', buildings = None, target_meters = None, min_series_len = 10):
+        self.data_process = data4correlation()
+        self.sql_process = correlation4sql()
         self.raw_data = file_name
         self.buildings = buildings
         self.target_meters = target_meters
-        self.sample_rate = sample_rate
         self.min_series_len = min_series_len
 
-    def start_data_preprocess(self, num_on_state=6, threshold=20):
+    def start_data_preprocess(self, sample_rate=60, num_on_state=5, threshold=70):
         self.data_process.read_data_from_csv(self.raw_data)
-        usage_representation = self.data_process.get_usage_representation(self.buildings, self.target_meters, num_on_state, threshold, self.sample_rate)
+        if self.buildings is None or self.target_meters is None:
+            self.buildings, self.target_meters = self.data_process.init_parameters(self.buildings, self.target_meters)
+        period = str(sample_rate) + 'min'
+        usage_representation = self.data_process.get_usage_representation(self.buildings, self.target_meters, num_on_state, threshold, period)
         return usage_representation
 
     def start_sql_storage(self, usage_representation):
         temp_app_loc = (1, 1, 1)
         self.sql_process.result2db(usage_representation, temp_app_loc, self.min_series_len)
 
-    def demo_algorithms(self, target_building = 2, min_supp=0.003, min_confi=0.1):
-        usage_representation = self.start_data_preprocess()
+    def demo_algorithms(self, sample_rate=60, min_supp=0.003, min_confi=0.1):
+        usage_representation = self.start_data_preprocess(sample_rate)
         self.start_sql_storage(usage_representation)
-        apriori_result = self.data_process.execute_apriori(usage_representation[target_building], self.min_series_len, min_supp, min_confi)
-        return apriori_result
+        for target_building in tqdm(self.buildings):
+            time_idx = usage_representation[target_building].index
+            if len(time_idx) < 2 :
+                continue
+            duration = [time_idx[0], time_idx[-1]]
+            apriori_result = self.data_process.execute_apriori(usage_representation[target_building], self.min_series_len, min_supp, min_confi)
+            self.data_process.save_apriori(apriori_result, target_building, sample_rate, duration, file_name = 'apriori_of_building_' + str(target_building) + '_rate_' + str(sample_rate), to_sql=True)
+
+        print('All the computations are completed...')
