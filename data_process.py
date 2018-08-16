@@ -355,7 +355,7 @@ class data4correlation():
         results = apriori(apriori_series, min_support=min_supp, min_confidence=min_confi)
         return list(results)
 
-    def save_apriori(self, apriori_result, building, sample_rate, duration, file_name, host='mssql+pymssql://III_Cluster:III_clustering@140.92.174.21\SQLEXPRESS01/usage_db', to_sql=False):
+    def save_apriori(self, apriori_result, building, sample_rate, duration, file_name, host='mssql+pymssql://III_Cluster:hhh_jjj@140.111.111.11\SQLEXPRESS01/usa11_11', to_sql=False):
         if apriori_result is None:
             return
         df = pd.DataFrame()
