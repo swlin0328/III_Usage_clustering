@@ -13,11 +13,22 @@ from datetime import timedelta
 from sqlalchemy import create_engine
 import pymssql
 from tqdm import tqdm
+import re
 
 class data4correlation():
-    def __init__(self):
+    def __init__(self, dataset='@@@'):
         self.meter_name = {"main":[0], "others":[1], "television":[2], "fridge":[3, 1002], "air conditioner":[4, 1004], "bottle warmer":[5], "washing machine":[6]}
-        self.appliance_code = {1:"other", 2:"television", 3:"fridge", 4:"air conditioner", 5:"bottle warmer", 6:"washing machine"}
+        if dataset == 'uk':
+            self.meter_name = {"main": [26], "vacuum_cleaner": [25], "washer_dryer": [24], "microwave": [23],
+                           "dishwasher": [22], "electric_hob": [21], "oven": [20],
+                           "fridge_freezer": [19], "kettle": [18], "sky_hd_box": [17],
+                           "home_theatre_amp": [16], "toaster": [15], "atom_pc": [14],
+                           "nespresso_pixie": [13], "steam_iron": [12], "PS4": [11],
+                           "24_inch_lcd": [10], "core2_server": [9], "network_attached_storage": [8],
+                           "treadmill": [7], "24_inch_lcd_bedroom": [6], "primary_tv": [5],
+                           "hairdryer": [4], "i7_desktop": [3], "stereo_speakers_bedroom": [2], "aggregate": [1]}
+
+        self.appliance_code = {value[0]:key for key, value in self.meter_name.iteritems()}
         self.buliding_df = {}
         self.building_switch = {}
         self.building_representation = {}
@@ -96,7 +107,7 @@ class data4correlation():
             meters_name.remove('main')
             
         building_meters = self.df.groupby('buildingid').get_group(target_building)
-        building_meters.index = pd.to_datetime(building_meters['reporttime'])
+        building_meters.index = pd.to_datetime(building_meters['reporttime'], format='%Y-%m-%d %H:%M:%S')
         building_meters = building_meters.groupby('channelid')
         building_channels = building_meters.groups.keys()
         
@@ -187,16 +198,16 @@ class data4correlation():
                 continue
             self.save_csv_file(df[target_building], file_name + '_building_' + str(target_building),  message)
 
-    def save_csv_file(self, df, file_name, message=None):
+    def save_csv_file(self, df, file_name, message=None, list_idx=True):
         if not os.path.isdir('result'):
             os.makedirs('result')
         
         csv_path = './result/' + file_name + '.csv'
-        df.to_csv(csv_path)
+        df.to_csv(csv_path, index = list_idx)
         if message is not None:
             print (message)
 
-    def extract_switch_moment(self, buildings, target_meters, num_on_state=5, threshold=70, sample_rate='60min'):
+    def extract_switch_moment(self, buildings, target_meters, num_on_state=4, threshold=70, sample_rate='60min'):
         """
         Extract the switch moment at each timestamp.
 
@@ -241,7 +252,7 @@ class data4correlation():
         self.save_dict2csv(self.building_switch, file_name='swich_moment')       
         return self.building_switch
 
-    def check_meters_state(self, buildings_meters_state, target_meters, num_on_state, sample_rate, continuous_timestamps='5min'):
+    def check_meters_state(self, buildings_meters_state, target_meters, num_on_state, sample_rate, continuous_timestamps='4min'):
         """
         Check the meter state is continuous, the defalut value is set to be 3min, and return the meters state of each sampling duration.
         The 'On state' refers the On states in sampling duration is above the num_on_states.
@@ -259,7 +270,7 @@ class data4correlation():
             buildings_meters_state[building] = buildings_meters_state[building].resample(continuous_timestamps, how='min')
             buildings_meters_state[building] = buildings_meters_state[building].fillna(False)
             buildings_meters_state[building] = buildings_meters_state[building].resample(sample_rate, how='sum')
-            buildings_meters_state[building] = buildings_meters_state[building][[ meter for meter in target_meters if meter in buildings_meters_state[building].keys()]] > num_on_state/state_per_duration
+            buildings_meters_state[building] = buildings_meters_state[building][[ meter for meter in target_meters if meter in buildings_meters_state[building].keys()]] >= num_on_state/state_per_duration
         return buildings_meters_state
 
     def concate_appliances_state(self):
@@ -279,7 +290,7 @@ class data4correlation():
         self.save_dict2csv(self.building_representation, file_name='concate_states') 
         return self.building_representation
 
-    def get_usage_representation(self, buildings = None, target_meters = None, num_on_state=5, threshold=70, sample_rate='60min'):
+    def get_usage_representation(self, buildings = None, target_meters = None, num_on_state=4, threshold=70, sample_rate='60min'):
         """
         Executing the preprocess algorithms for the raw data, returning the usage representationin pd.Series.
 
@@ -335,7 +346,7 @@ class data4correlation():
             if building not in self.buliding_df.keys():
                 buildings.remove(building)
 
-    def prepare_apriori_series(self, representation_series):
+    def prepare_apriori_series(self, representation_series, start_date, end_date):
         start_time_idx = representation_series.index[0].strftime("%Y/%m/%d")
         end_time_idx = (representation_series.index[-1] + timedelta(days=1)).strftime("%Y/%m/%d")
         time_index = pd.date_range(start=start_time_idx, end=end_time_idx, closed='left', freq='H')
@@ -344,49 +355,116 @@ class data4correlation():
         apriori_series = pd.concat([apriori_series, representation_series], axis=1)
         apriori_series = apriori_series[1]
         apriori_series = apriori_series.fillna("")
+
+        if start_date is not None and end_date is not None:
+            mask = (apriori_series.index > start_date) & (apriori_series.index <= end_date)
+            apriori_series = apriori_series.loc[mask]
         
         return apriori_series
 
-    def execute_apriori(self, representation_series, min_series_len, min_supp = 0.003, min_confi=0.1):
+    def execute_apriori(self, representation_series, min_series_len, start_date=None, end_date=None,  window_size='4hour', min_supp=0.003, min_confi=0.1):
         if representation_series.size < min_series_len:
             print('representation_series is too short...')
             return
-        apriori_series = self.prepare_apriori_series(representation_series)
-        results = apriori(apriori_series, min_support=min_supp, min_confidence=min_confi)
-        return list(results)
+        if start_date is None:
+            representation_series.index[0]
+        if end_date is None:
+            representation_series.index[-1]
 
-    def save_apriori(self, apriori_result, building, sample_rate, duration, file_name, host='mssql+pymssql://User:pass@122.111.111.11\SQLEXPRESS01/db_name', to_sql=False):
+        apriori_result = []
+        apriori_series = self.prepare_apriori_series(representation_series, start_date, end_date)
+        window_size = int(window_size.split('hour')[0])
+
+        while(start_date < end_date):
+            target_time = start_date + pd.Timedelta(hours=window_size-1)
+            target_series = apriori_series[start_date:target_time]
+            results = apriori(target_series, min_support=min_supp, min_confidence=min_confi)
+            apriori_result.append(list(results))
+            start_date = target_time + pd.Timedelta(hours=1)
+
+        return apriori_result
+
+    def save_apriori(self, apriori_result, building, sample_rate, duration, window_size, file_name, host='mssql+pymssql://user:password.@@@.@@@.@@\SQLEXPRESS01/db', to_sql=False):
         if apriori_result is None:
             return
         df = pd.DataFrame()
+        window_size = int(window_size.split('hour')[0])
+        statistic_data = {}
 
-        for result in apriori_result:
-            tmp_data = {}
-            tmp_data.setdefault('building', building)
-            tmp_data.setdefault('sample_rate', sample_rate)
-            tmp_data.setdefault('appliance', str(result[0]))
-            tmp_data.setdefault('confidence', round(result[1], 4))
-            tmp_data.setdefault('duration', duration[0].strftime("%Y/%m/%d") + ' ~ ' + duration[-1].strftime("%Y/%m/%d"))
-            tmp_data.setdefault('correlation_0', '')
-            tmp_data.setdefault('correlation_1', '')
-            tmp_data.setdefault('correlation_2', '')
-            tmp_data.setdefault('correlation_3', '')
-        
-            for idx in range(len(result[2])):
-                col = 'correlation_' + str(idx)
-                tmp_data[col] = str(result[2][idx])
+        for group_idx, duration_result in enumerate(apriori_result):
+            group_idx = int(group_idx)
+            num_group = int(24 / window_size)
+            group = group_idx % num_group
+            appliance = {}
+            correlation = {}
+            statistic_data.setdefault(group, appliance)
 
-            df = df.append(tmp_data, ignore_index=True)
+            for result in duration_result:
+                if len(result) < 3:
+                    continue
+                tmp_data = {}
+                app = str(result[0])
+                tmp_data.setdefault('day', int(group_idx/num_group)+1)
+                tmp_data.setdefault('group', group+1)
+                tmp_data.setdefault('building', building)
+                tmp_data.setdefault('sample_rate', sample_rate)
+                tmp_data.setdefault('appliance', app)
+                tmp_data.setdefault('support', round(result[1], 4))
+                tmp_data.setdefault('duration', duration[0].strftime("%Y/%m/%d") + ' ~ ' + duration[-1].strftime("%Y/%m/%d"))
+                tmp_data.setdefault('correlation_0', '')
+                tmp_data.setdefault('correlation_1', '')
+                tmp_data.setdefault('correlation_2', '')
+                tmp_data.setdefault('correlation_3', '')
+                tmp_data.setdefault('correlation_4', '')
+                tmp_data.setdefault('correlation_5', '')
+                statistic_data[group].setdefault(app, correlation)
 
+                for idx in range(len(result[2])):
+                    col = 'correlation_' + str(idx)
+                    corr = str(result[2][idx])
+                    tmp_data[col] = corr
+                    key = corr.split(', confidence')[0] + ')'
+                    statistic_data[group][app].setdefault(key, 0)
+                    statistic_data[group][app][key] = statistic_data[group][app][key] + 1
+
+                df = df.append(tmp_data, ignore_index=True)
+        if df.shape[0] < 2:
+            return
+
+        df = df.sort_values('group')
+        df.index.rename('item')
         if to_sql:
             self.df2sql(df, table_name='apriori_result', host=host)
-
-        self.save_csv_file(df, file_name)
+        self.save_csv_file(df, file_name, list_idx=False)
+        return statistic_data
 
     def df2sql(self, df, table_name, host, method='append'):
         engine = create_engine(host)
         df.to_sql(name=table_name, con=engine, index=False, if_exists=method)
-        
+
+    def filter_apriori_result(self, results, threshold_result=2):
+        for group_idx in range(len(results)):
+            for idx in range(len(results[group_idx]), 0, -1):
+                idx = idx-1
+                if len(results[group_idx][idx][0]) < threshold_result:
+                    del results[group_idx][idx]
+        return results
+
+    def convert_uk2rawdata(self, file_path='building5/elec/'):
+        DATA_DIR = "data/uk/" + file_path
+        df = pd.DataFrame(columns=['reporttime', 'w', 'buildingid', 'channelid'])
+        for filename in os.listdir(DATA_DIR):
+            print("Loading: ", filename)
+            house_df = pd.read_csv(DATA_DIR + filename, header=0)
+            building_df = pd.DataFrame(columns=['reporttime', 'w', 'buildingid', 'channelid'])
+            building_df['reporttime'] = house_df[3:]['physical_quantity']
+            building_df['w'] = house_df[3:]['power']
+            building_df['channelid'] = filename.split('.')[0].split('meter')[1]
+            building_df['buildingid'] = file_path.split('/')[0].split('building')[1]
+            df = df.append(building_df, ignore_index=True)
+
+        df.to_csv('data/uk_rawdata.csv', index=False)
+        print('Successfully converted...')
 
 class CorrelationPipeline():
     """
@@ -408,15 +486,15 @@ class CorrelationPipeline():
     demo_algorithms : Presenting the apriori algorithm.
     
     """
-    def __init__(self, file_name = 'raw_data', buildings = None, target_meters = None, min_series_len = 10):
-        self.data_process = data4correlation()
+    def __init__(self, data_set='III', file_name='raw_data', buildings=None, target_meters=None, min_series_len=3):
+        self.data_process = data4correlation(data_set)
         self.sql_process = correlation4sql()
         self.raw_data = file_name
         self.buildings = buildings
         self.target_meters = target_meters
         self.min_series_len = min_series_len
 
-    def start_data_preprocess(self, sample_rate=60, num_on_state=5, threshold=70):
+    def start_data_preprocess(self, sample_rate=60, num_on_state=4, threshold=70):
         self.data_process.read_data_from_csv(self.raw_data)
         if self.buildings is None or self.target_meters is None:
             self.buildings, self.target_meters = self.data_process.init_parameters(self.buildings, self.target_meters)
@@ -428,15 +506,29 @@ class CorrelationPipeline():
         temp_app_loc = (1, 1, 1)
         self.sql_process.result2db(usage_representation, temp_app_loc, self.min_series_len)
 
-    def demo_algorithms(self, sample_rate=60, min_supp=0.003, min_confi=0.1):
+    def demo_algorithms(self, start_date=None, end_date=None, window_size='4hour', sample_rate=60, min_supp=0.003, min_confi=0.1):
         usage_representation = self.start_data_preprocess(sample_rate)
         self.start_sql_storage(usage_representation)
+        if start_date is None:
+            representation_series.index[0]
+        else:
+            start_date = pd.to_datetime(start_date)
+
+        if end_date is None:
+            representation_series.index[-1]
+        else:
+            end_date = pd.to_datetime(end_date)
+        duration = [start_date, end_date]
+
         for target_building in tqdm(self.buildings):
-            time_idx = usage_representation[target_building].index
-            if len(time_idx) < 2 :
+            if usage_representation[target_building].size < 2:
                 continue
-            duration = [time_idx[0], time_idx[-1]]
-            apriori_result = self.data_process.execute_apriori(usage_representation[target_building], self.min_series_len, min_supp, min_confi)
-            self.data_process.save_apriori(apriori_result, target_building, sample_rate, duration, file_name = 'apriori_of_building_' + str(target_building) + '_rate_' + str(sample_rate), to_sql=True)
+            apriori_result = self.data_process.execute_apriori(usage_representation[target_building], self.min_series_len, start_date, end_date,  window_size, min_supp, min_confi)
+            apriori_result = self.data_process.filter_apriori_result(apriori_result, threshold_result=2)
+            statistic = self.data_process.save_apriori(apriori_result, target_building, sample_rate, duration, window_size, file_name = 'apriori_of_building_' + str(target_building) + '_rate_' + str(sample_rate) + '_wsize_' + str(window_size), to_sql=True)
+            for group, app in statistic.iteritems():
+                for appliance, corr in app.iteritems():
+                    for order, count in corr.iteritems():
+                        print('The ' + appliance + ' in group ' + str(group) + ' for correlation ' + order + ' = ' + str(count))
 
         print('All the computations are completed...')

@@ -36,7 +36,7 @@ class sql4data():
         print('============ Close the remote connection ============')
         print('=====================================================')
 
-    def read_data(self, start_date='2017-08-01', end_date='2018-07-31', file_name='raw_data'):
+    def read_data(self, start_date='', end_date='', file_name='raw_data'):
         sql_query = ("SELECT * FROM raw_training_data WHERE reporttime BETWEEN '" + start_date + "' AND '" + end_date + "'" )
 
         print ('Start to query from the raw_data...')

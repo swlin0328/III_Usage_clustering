@@ -8,7 +8,7 @@ from ast import literal_eval as make_tuple
 import numpy as np
 
 
-class cluster4sql():
+class correlation4sql():
     """
     Class for uploading preprocessed result to MSSQL.
 
@@ -18,7 +18,7 @@ class cluster4sql():
     
     """
         
-    def __init__(self, user="", password="", database="", host_address='', port='1433', meter_name=None):
+    def __init__(self, user="", password="", database="", host_address='@@@.@@@.@@@.@@\SQLEXPRESS01', port='1433', meter_name=None):
         self.user = user
         self.password = password
         self.database = database
@@ -39,6 +39,9 @@ class cluster4sql():
         print('Time : {}\n'.format(strftime('%Y-%m-%d_%H_%M')))
         self.db = pymssql.connect(server=self.host_address, port=self.port, user=self.user, password=self.password, database=self.database, charset="utf8")
         self.cursor = self.db.cursor()
+
+    def get_db(self):
+        return self.db
 
     def disconnect(self):
         self.db.close()
@@ -229,7 +232,6 @@ class cluster4sql():
             if sql_buildings is None or building_id not in sql_buildings:
                 self.insert_data(building=building_id)
             
-
             year_data = building_data.groupby(building_data.index.year)
             year_index = year_data.groups.keys()
 
@@ -253,14 +255,16 @@ class cluster4sql():
     def save_seq2db(self, day_seq, building_id, app_loc):
         report_date = day_seq.index[0].strftime("%Y/%m/%d")
 
-        if len(self.search_data("SELECT * FROM representation_blob WHERE record_date = " + report_date + " and building =" + str(building_id))) > 0:
+        if self.search_data("SELECT * FROM usage_table WHERE report_date ='" + report_date + "' and building =" + str(building_id)) is not None:
             return
         
-        for time_idx, seq in day_seq.iteritems():
-            for app in seq:                  
-                appliance_code = abs(app)
-                            
-                if app > 0:
+        for time_idx, seq in day_seq.iteritems():            
+            for app in seq:
+                info = app.split("_")
+                state = info[0]
+                appliance_code = self.meter_name[info[1]][0]
+                
+                if state == "On":
                     turn_on_time = time_idx.strftime("%Y/%m/%d %H:%M")
 #                   interior_location = app_loc[building_id][appliance]
                     interior_location = (1, 1, appliance_code)
