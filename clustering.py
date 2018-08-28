@@ -15,7 +15,7 @@ def km_clustering(file_name='max_min_sum_w_dataSet', num_cluster=5, model_name='
     y_km = km.fit_predict(input_X)
     center = km.cluster_centers_
     
-    save_model(km)
+    save_model(km, model_name, to_pkl, to_sql)
     save_center2csv(center)
     save_cluster2csv_with_label(df, y_km)
     return km
