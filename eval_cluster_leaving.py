@@ -5,7 +5,7 @@ from time import strftime
 
 def eval_cluster_leaving(df, load_range, cluster=5):
     """
-        input : df('cluster_with_label.csv')
+        input : df('cluster_with_label.csv'), load_range('eval_cluster_loadrange.npy')
         return : for example: ./data/eval_cluster_leaving.csv
     """
     labels = df['Group_ID']
