@@ -14,7 +14,7 @@ def eval_cluster_leaving(df, load_range, cluster=5):
     df['max']=df.max(axis=1)
     result = pd.DataFrame({'Group_ID':[], 'c_cost':[], 'c_tload':[], 'c_pload':[], 'dist_cost':[],
                             'dist_pload':[], 'Updatetime':[]})
-    # sum 
+   
     for center in range(cluster):
         center_sum = load_range['center_'+str(center)]['sum']
         center_max = load_range['center_'+str(center)]['max']
