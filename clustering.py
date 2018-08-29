@@ -7,15 +7,16 @@ def read_data_from_csv(file_name):
     df = pd.read_csv('./data/' + file_name + '.csv', header=0)
     return df
 
-def km_clustering(file_name='max_min_sum_w_dataSet', num_cluster=5, model_name='Kmeans', to_pkl=True, to_sql=False):
-    km = KMeans(n_clusters=num_cluster, random_state=0)
+def km_clustering(file_name='max_min_sum_w_dataSet', num_cluster=5, n_init=25, max_iter=1000, model_name='Kmeans', to_pkl=True, to_sql=False):
+    km = KMeans(n_clusters=num_cluster, random_state=0, n_init=n_init, max_iter=max_iter)
     df = read_data_from_csv(file_name)
-    input_X = df.iloc[:, 3:99]
+    input_X = df.iloc[:, 3:99] # The recorded power consumption
     
     y_km = km.fit_predict(input_X)
     center = km.cluster_centers_
+    model_name = model_name + strftime('%Y-%m-%d')
     
-    save_model(km, model_name, to_pkl, to_sql)
+    save_model(km)
     save_center2csv(center)
     save_cluster2csv_with_label(df, y_km)
     return km
@@ -36,4 +37,5 @@ def save_center2csv(center):
 def save_cluster2csv_with_label(df, label):
     df.insert(loc=3, column='Group_ID', value=label)
     df['Reporttime'] = strftime('%Y-%m-%d %H:%M')
+    df = df.drop(['reportTime'], axis=1)
     df.to_csv(r'./result/cluster_with_label.csv', index=False)

@@ -1,9 +1,6 @@
 
 # coding: utf-8
 
-# In[ ]:
-
-
 import cPickle 
 from time import strftime
 import MySQLdb
@@ -74,5 +71,3 @@ class sql4cluster():
         with open(self.model_name, 'wb') as file:  
             cPickle.dump(trained_model, file)
         model_blob = cPickle.dumps(trained_model)
-
-
