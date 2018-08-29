@@ -8,7 +8,7 @@ def read_data_from_csv(file_name):
 
 def cal_user_daily_load(file_name='max_min_sum_w_dataSet'):
     df = read_data_from_csv(file_name)
-    df['Week_id'] = pd.to_datetime(df['reportTime']).dt.weekday
+    df['Week_id'] = pd.to_datetime(df['reportTime']).dt.weekday + 1
     df_user_group = df.groupby('userId')
     userId = df_user_group.groups.keys()
     users_dailyload = pd.DataFrame()
