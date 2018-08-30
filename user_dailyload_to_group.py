@@ -21,7 +21,7 @@ def group_user_dailyload(model_name, file_path='./result/user_dailyload.csv'):
     for user in userId:
         dailyload2group = pd.DataFrame()
         user_group = df_user_group.get_group(user)
-        input_X = user_group.iloc[:, 4:100] # recorded power consumption
+        input_X = user_group.iloc[:, 5:101] # recorded power consumption
         group = km_model.predict(input_X)
 
         dailyload2group['Week_id'] = user_group['Week_id']

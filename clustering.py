@@ -16,7 +16,7 @@ def km_clustering(file_name='max_min_sum_w_dataSet', num_cluster=5, n_init=25, m
     center = km.cluster_centers_
     model_name = model_name + strftime('%Y-%m-%d')
     
-    save_model(km)
+    save_model(km, model_name)
     save_center2csv(center)
     save_cluster2csv_with_label(df, y_km)
     return km
